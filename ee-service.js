@@ -68,8 +68,15 @@ function maskClouds(image) {
   return image.updateMask(mask);
 }
 
-// ---- indices (same formulas as the script) + <10% cloud filter ----
-function computeIndices(geom, year, month) {
+// ---- indices (same formulas as the script) + cloud filter ----
+// Default keeps Prathyu's strict 10%. Only May for Mumbai/Hyderabad relaxes to
+// 25%, because those specific scenes have no image under 10% cloud.
+function computeIndices(geom, year, month, cityKey) {
+  let cloudMax = 10;
+  if (month === 5 && (cityKey === "mumbai" || cityKey === "hyderabad")) {
+    cloudMax = 25;
+  }
+
   const start = ee.Date.fromYMD(year, month, 1);
   const end = start.advance(1, "month");
   const col = ee
@@ -77,7 +84,7 @@ function computeIndices(geom, year, month) {
     .merge(ee.ImageCollection("LANDSAT/LC09/C02/T1_L2"))
     .filterBounds(geom)
     .filterDate(start, end)
-    .filter(ee.Filter.lt("CLOUD_COVER", 25)) // relaxed to 25% for better month coverage
+    .filter(ee.Filter.lt("CLOUD_COVER", cloudMax))
     .map(maskClouds);
 
   const composite = col.median().clip(geom);
@@ -175,7 +182,7 @@ function imageToUrl(image, vis) {
 // ---- public functions used by the server ----
 async function indexTileUrl(cityKey, year, month, layer) {
   const geom = cityGeom(cityKey);
-  const idx = computeIndices(geom, year, month);
+  const idx = computeIndices(geom, year, month, cityKey);
   let image, vis;
   switch (layer) {
     case "ndvi":
