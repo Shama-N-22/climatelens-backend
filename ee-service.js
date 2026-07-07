@@ -39,10 +39,11 @@ function isReady() {
 // ---- city geometries ----
 // Bounding boxes from the GEE script. To clip to real MUNICIPAL BOUNDARIES,
 // replace the returned geometry with a FeatureCollection asset (see comment).
+// Bigger bounding boxes to cover the whole city / ring-road extent.
 const CITY_BOXES = {
-  ahmedabad: [72.48, 22.95, 72.68, 23.1],
-  hyderabad: [78.35, 17.33, 78.58, 17.48],
-  mumbai: [72.8, 18.95, 72.98, 19.15],
+  ahmedabad: [72.45, 22.9, 72.72, 23.15],
+  hyderabad: [78.3, 17.28, 78.62, 17.55],
+  mumbai: [72.77, 18.89, 73.0, 19.28],
 };
 function cityGeom(cityKey) {
   const box = CITY_BOXES[cityKey];
@@ -76,7 +77,7 @@ function computeIndices(geom, year, month) {
     .merge(ee.ImageCollection("LANDSAT/LC09/C02/T1_L2"))
     .filterBounds(geom)
     .filterDate(start, end)
-    .filter(ee.Filter.lt("CLOUD_COVER", 10)) // Prathyu: keep cloud cover < 10%
+    .filter(ee.Filter.lt("CLOUD_COVER", 25)) // relaxed to 25% for better month coverage
     .map(maskClouds);
 
   const composite = col.median().clip(geom);
@@ -206,7 +207,7 @@ async function buildingsTileUrl(cityKey) {
     .filterBounds(geom)
     .filter("confidence >= 0.65");
   const styled = buildings.style({
-    color: "#e65c00",
+    color: "#b8bcc4",
     fillColor: "00000000",
     width: 1,
   });
