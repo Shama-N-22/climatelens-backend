@@ -39,11 +39,11 @@ function isReady() {
 // ---- city geometries ----
 // Bounding boxes from the GEE script. To clip to real MUNICIPAL BOUNDARIES,
 // replace the returned geometry with a FeatureCollection asset (see comment).
-// Bigger bounding boxes to cover the whole city / ring-road extent.
+// Large bounding boxes (~double) so the raster layers cover the wider metro area.
 const CITY_BOXES = {
-  ahmedabad: [72.45, 22.9, 72.72, 23.15],
-  hyderabad: [78.3, 17.28, 78.62, 17.55],
-  mumbai: [72.77, 18.89, 73.0, 19.28],
+  ahmedabad: [72.35, 22.8, 72.82, 23.25],
+  hyderabad: [78.15, 17.15, 78.75, 17.7],
+  mumbai: [72.65, 18.8, 73.1, 19.4],
 };
 function cityGeom(cityKey) {
   const box = CITY_BOXES[cityKey];
@@ -179,6 +179,105 @@ function imageToUrl(image, vis) {
   });
 }
 
+// ---- UHI hotspots (faithful re-implementation of the GEE UHI script) ----
+// Per-city threshold: Ahmedabad 0.38, Hyderabad 0.40, Mumbai 0.44.
+const UHI_THRESHOLDS = { ahmedabad: 0.38, hyderabad: 0.4, mumbai: 0.44 };
+
+// >>> PASTE MUNICIPAL BOUNDARY GEE ASSET IDs HERE when available. <<<
+// e.g. ahmedabad: "projects/argon-key-461118-u4/assets/ahmedabad_municipal"
+// Leave "" to fall back to the bounding box.
+const MUNI_ASSETS = {
+  ahmedabad: "",
+  hyderabad: "projects/argon-key-461118-u4/assets/hyderabad_wards",
+  mumbai: "projects/argon-key-461118-u4/assets/mumbai_wards",
+};
+
+// returns the municipal-boundary geometry if an asset is set, else the box
+function uhiClipGeom(cityKey, boxGeom) {
+  const assetId = MUNI_ASSETS[cityKey];
+  if (assetId && assetId.length > 0) {
+    return ee.FeatureCollection(assetId).geometry();
+  }
+  return boxGeom;
+}
+
+function uhiHotspots(geom, cityKey) {
+  // seasonal (Mar–Jun), all years 2020–2026, like her script
+  const col = ee
+    .ImageCollection("LANDSAT/LC08/C02/T1_L2")
+    .merge(ee.ImageCollection("LANDSAT/LC09/C02/T1_L2"))
+    .filterBounds(geom)
+    .filter(ee.Filter.calendarRange(2020, 2026, "year"))
+    .filter(ee.Filter.calendarRange(3, 6, "month"));
+  const composite = col.median().clip(geom);
+
+  const ndvi = composite
+    .expression("(NIR-RED)/(NIR+RED)", {
+      NIR: composite.select("SR_B5"),
+      RED: composite.select("SR_B4"),
+    })
+    .rename("NDVI");
+  const wi = composite
+    .expression("(GREEN-NIR)/(GREEN+NIR)", {
+      GREEN: composite.select("SR_B3"),
+      NIR: composite.select("SR_B5"),
+    })
+    .rename("WI");
+  const bi = composite
+    .expression("(SWIR-NIR)/(SWIR+NIR)", {
+      SWIR: composite.select("SR_B6"),
+      NIR: composite.select("SR_B5"),
+    })
+    .rename("BI");
+  const lst = composite
+    .expression("(TH*0.00341802+149.0)-273.15", {
+      TH: composite.select("ST_B10"),
+    })
+    .rename("LST");
+  const raw = ndvi.addBands(wi).addBands(bi).addBands(lst);
+
+  function norm(band, isNeg) {
+    const stats = raw
+      .select(band)
+      .reduceRegion({
+        reducer: ee.Reducer.minMax(),
+        geometry: geom,
+        scale: 150,
+        maxPixels: 1e9,
+      });
+    const mn = ee.Number(stats.get(band + "_min"));
+    const mx = ee.Number(stats.get(band + "_max"));
+    const n = raw.select(band).subtract(mn).divide(mx.subtract(mn));
+    return (isNeg ? ee.Image(1).subtract(n) : n).rename(band + "_norm");
+  }
+  const stacked = norm("NDVI", false)
+    .addBands(norm("WI", false))
+    .addBands(norm("BI", true))
+    .addBands(norm("LST", true));
+
+  const weighted = stacked
+    .expression("(0.20*NDVI)+(0.20*WI)+(0.30*BI)+(0.30*LST)", {
+      NDVI: stacked.select("NDVI_norm"),
+      WI: stacked.select("WI_norm"),
+      BI: stacked.select("BI_norm"),
+      LST: stacked.select("LST_norm"),
+    })
+    .rename("Weighted");
+
+  const threshold = UHI_THRESHOLDS[cityKey] ?? 0.4;
+  const rawHot = weighted.lte(threshold);
+  const urbanMask = stacked.select("BI_norm").lte(0.6);
+  const hotspots = rawHot.and(urbanMask).selfMask().rename("UHI");
+
+  // clip to municipal boundary if the asset is set, else to the box
+  return hotspots.clip(uhiClipGeom(cityKey, geom));
+}
+
+async function uhiTileUrl(cityKey) {
+  const geom = cityGeom(cityKey);
+  return imageToUrl(uhiHotspots(geom, cityKey), { palette: ["#e63946"] });
+}
+
 // ---- public functions used by the server ----
 async function indexTileUrl(cityKey, year, month, layer) {
   const geom = cityGeom(cityKey);
@@ -221,4 +320,4 @@ async function buildingsTileUrl(cityKey) {
   return imageToUrl(styled, {});
 }
 
-module.exports = { init, isReady, indexTileUrl, buildingsTileUrl };
+module.exports = { init, isReady, indexTileUrl, buildingsTileUrl, uhiTileUrl };

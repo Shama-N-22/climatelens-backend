@@ -12,11 +12,12 @@ app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
 const PORT = process.env.PORT || 8080;
 
 // ---- simple in-memory cache so we don't recompute on every request ----
-const TTL_MS = 30 * 60 * 1000; // 30 minutes
+const TTL_MS = 30 * 60 * 1000; // 30 minutes for index tiles
+const BUILDINGS_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours (footprints don't change)
 const cache = new Map();
-const cacheGet = (k) => {
+const cacheGet = (k, ttl = TTL_MS) => {
   const v = cache.get(k);
-  if (v && Date.now() - v.t < TTL_MS) return v.url;
+  if (v && Date.now() - v.t < ttl) return v.url;
   cache.delete(k);
   return null;
 };
@@ -58,10 +59,26 @@ app.get("/api/buildings", async (req, res) => {
     if (!city) return res.status(400).json({ error: "city is required" });
 
     const key = `buildings:${city}`;
-    const hit = cacheGet(key);
+    const hit = cacheGet(key, BUILDINGS_TTL_MS);
     if (hit) return res.json({ url: hit, cached: true });
 
     const url = await ee.buildingsTileUrl(city);
+    cacheSet(key, url);
+    res.json({ url });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+// ---- UHI hotspots: /api/uhi?city=hyderabad ----
+app.get("/api/uhi", async (req, res) => {
+  try {
+    const city = String(req.query.city || "").toLowerCase();
+    if (!city) return res.status(400).json({ error: "city is required" });
+    const key = `uhi:${city}`;
+    const hit = cacheGet(key, BUILDINGS_TTL_MS);
+    if (hit) return res.json({ url: hit, cached: true });
+    const url = await ee.uhiTileUrl(city);
     cacheSet(key, url);
     res.json({ url });
   } catch (e) {
