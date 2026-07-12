@@ -275,7 +275,7 @@ function uhiHotspots(geom, cityKey) {
 
 async function uhiTileUrl(cityKey) {
   const geom = cityGeom(cityKey);
-  return imageToUrl(uhiHotspots(geom, cityKey), { palette: ["#ff5722"] });
+  return imageToUrl(uhiHotspots(geom, cityKey), { palette: ["#ff7a1a"] });
 }
 
 // ---- public functions used by the server ----
