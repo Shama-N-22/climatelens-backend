@@ -187,7 +187,8 @@ const UHI_THRESHOLDS = { ahmedabad: 0.38, hyderabad: 0.4, mumbai: 0.44 };
 // e.g. ahmedabad: "projects/argon-key-461118-u4/assets/ahmedabad_municipal"
 // Leave "" to fall back to the bounding box.
 const MUNI_ASSETS = {
-  ahmedabad: "",
+  // >>> after uploading ahmedabad_wards.zip to GEE, paste its asset ID here <<<
+  ahmedabad: "projects/argon-key-461118-u4/assets/ahmedabad_wards",
   hyderabad: "projects/argon-key-461118-u4/assets/hyderabad_wards",
   mumbai: "projects/argon-key-461118-u4/assets/mumbai_wards",
 };
