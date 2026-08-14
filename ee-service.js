@@ -331,7 +331,10 @@ async function indexTileUrl(cityKey, year, month, layer) {
     default:
       throw new Error("unknown layer: " + layer);
   }
-  return imageToUrl(image, vis);
+  // clip to the real boundary (village/ward asset) if one is set, else the
+  // box - same helper used for UHI, so LST/NDVI/NDWI/NDBI stop spilling past
+  // Telangana's actual outline into neighbouring states.
+  return imageToUrl(clipToBoundary(image, cityKey, geom), vis);
 }
 
 async function buildingsTileUrl(cityKey) {
