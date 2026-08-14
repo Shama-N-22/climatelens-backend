@@ -40,9 +40,13 @@ function isReady() {
 // Bounding boxes from the GEE script. To clip to real MUNICIPAL BOUNDARIES,
 // replace the returned geometry with a FeatureCollection asset (see comment).
 // Large bounding boxes (~double) so the raster layers cover the wider metro area.
+//
+// telangana is a whole STATE, not a metro box: this bbox is the real extent of
+// all 10,718 villages (from vb_soi_ts.shp, reprojected to WGS84) plus a small
+// ~0.05deg buffer on each side, not a doubled metro box like the city entries.
 const CITY_BOXES = {
   ahmedabad: [72.35, 22.8, 72.82, 23.25],
-  hyderabad: [78.15, 17.15, 78.75, 17.7],
+  telangana: [77.19, 15.79, 81.37, 19.97],
   mumbai: [72.65, 18.8, 73.1, 19.4],
 };
 function cityGeom(cityKey) {
@@ -54,7 +58,7 @@ function cityGeom(cityKey) {
   // const MUNI = {
   //   ahmedabad: "projects/xxx/assets/ahmedabad_muni",
   //   mumbai:    "projects/xxx/assets/mumbai_muni",
-  //   hyderabad: "projects/xxx/assets/hyderabad_muni",
+  //   telangana: "projects/xxx/assets/telangana_villages",
   // };
   // return ee.FeatureCollection(MUNI[cityKey]).geometry();
 }
@@ -69,11 +73,14 @@ function maskClouds(image) {
 }
 
 // ---- indices (same formulas as the script) + cloud filter ----
-// Default keeps Prathyu's strict 10%. Only May for Mumbai/Hyderabad relaxes to
+// Default keeps Prathyu's strict 10%. Only May for Mumbai/Telangana relaxes to
 // 25%, because those specific scenes have no image under 10% cloud.
+// (carried over from the old Hyderabad exception since Telangana now covers
+// the same Hyderabad scenes at state scale — revisit if May 25% turns out to
+// be too loose/tight once you see real state-wide coverage.)
 function computeIndices(geom, year, month, cityKey) {
   let cloudMax = 10;
-  if (month === 5 && (cityKey === "mumbai" || cityKey === "hyderabad")) {
+  if (month === 5 && (cityKey === "mumbai" || cityKey === "telangana")) {
     cloudMax = 25;
   }
 
@@ -180,8 +187,12 @@ function imageToUrl(image, vis) {
 }
 
 // ---- UHI hotspots (faithful re-implementation of the GEE UHI script) ----
-// Per-city threshold: Ahmedabad 0.38, Hyderabad 0.40, Mumbai 0.44.
-const UHI_THRESHOLDS = { ahmedabad: 0.38, hyderabad: 0.4, mumbai: 0.44 };
+// Per-city threshold: Ahmedabad 0.38, Telangana 0.40, Mumbai 0.44.
+// NOTE: Telangana is a full state now, not just Hyderabad city - a single
+// fixed threshold may over/under-flag hotspots given how much more spatial
+// variety a whole state has vs. one city. Kept at 0.40 (the old Hyderabad
+// value) for now; watch the results and re-tune per-district if needed.
+const UHI_THRESHOLDS = { ahmedabad: 0.38, telangana: 0.4, mumbai: 0.44 };
 
 // >>> PASTE MUNICIPAL BOUNDARY GEE ASSET IDs HERE when available. <<<
 // e.g. ahmedabad: "projects/argon-key-461118-u4/assets/ahmedabad_municipal"
@@ -189,7 +200,8 @@ const UHI_THRESHOLDS = { ahmedabad: 0.38, hyderabad: 0.4, mumbai: 0.44 };
 const MUNI_ASSETS = {
   // >>> after uploading ahmedabad_wards.zip to GEE, paste its asset ID here <<<
   ahmedabad: "projects/argon-key-461118-u4/assets/ahmedabad_wards",
-  hyderabad: "projects/argon-key-461118-u4/assets/hyderabad_wards",
+  // >>> after uploading vb_soi_ts (Telangana villages) to GEE, paste its asset ID here <<<
+  telangana: "",
   mumbai: "projects/argon-key-461118-u4/assets/mumbai_wards",
 };
 
@@ -200,6 +212,23 @@ function uhiClipGeom(cityKey, boxGeom) {
     return ee.FeatureCollection(assetId).geometry();
   }
   return boxGeom;
+}
+
+// Boundary application via a rasterized mask instead of a raw geometry clip.
+// Clipping directly to a large FeatureCollection's .geometry() (like the
+// 10,718-village Telangana asset) embeds every vertex into the tile request
+// and can hit Earth Engine's "Description length exceeds maximum" error.
+// Painting the boundary into a mask image keeps the FeatureCollection as an
+// asset reference server-side instead. Safe/identical behavior for the small
+// Ahmedabad/Mumbai ward collections too.
+function clipToBoundary(image, cityKey, boxGeom) {
+  const assetId = MUNI_ASSETS[cityKey];
+  if (assetId && assetId.length > 0) {
+    const fc = ee.FeatureCollection(assetId);
+    const boundaryMask = ee.Image().byte().paint(fc, 1);
+    return image.updateMask(boundaryMask).clip(boxGeom);
+  }
+  return image.clip(boxGeom);
 }
 
 function uhiHotspots(geom, cityKey) {
@@ -238,14 +267,12 @@ function uhiHotspots(geom, cityKey) {
   const raw = ndvi.addBands(wi).addBands(bi).addBands(lst);
 
   function norm(band, isNeg) {
-    const stats = raw
-      .select(band)
-      .reduceRegion({
-        reducer: ee.Reducer.minMax(),
-        geometry: geom,
-        scale: 150,
-        maxPixels: 1e9,
-      });
+    const stats = raw.select(band).reduceRegion({
+      reducer: ee.Reducer.minMax(),
+      geometry: geom,
+      scale: 150,
+      maxPixels: 1e9,
+    });
     const mn = ee.Number(stats.get(band + "_min"));
     const mx = ee.Number(stats.get(band + "_max"));
     const n = raw.select(band).subtract(mn).divide(mx.subtract(mn));
@@ -270,8 +297,8 @@ function uhiHotspots(geom, cityKey) {
   const urbanMask = stacked.select("BI_norm").lte(0.6);
   const hotspots = rawHot.and(urbanMask).selfMask().rename("UHI");
 
-  // clip to municipal boundary if the asset is set, else to the box
-  return hotspots.clip(uhiClipGeom(cityKey, geom));
+  // clip to municipal boundary (via rasterized mask) if the asset is set, else to the box
+  return clipToBoundary(hotspots, cityKey, geom);
 }
 
 async function uhiTileUrl(cityKey) {
