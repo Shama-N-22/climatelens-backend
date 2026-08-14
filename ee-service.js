@@ -214,19 +214,24 @@ function uhiClipGeom(cityKey, boxGeom) {
   return boxGeom;
 }
 
-// Boundary application via a rasterized mask instead of a raw geometry clip.
-// Clipping directly to a large FeatureCollection's .geometry() (like the
-// 10,718-village Telangana asset) embeds every vertex into the tile request
-// and can hit Earth Engine's "Description length exceeds maximum" error.
-// Painting the boundary into a mask image keeps the FeatureCollection as an
-// asset reference server-side instead. Safe/identical behavior for the small
+// Boundary application via a single dissolved + simplified outline instead
+// of painting/rasterizing every individual polygon on every tile request.
+// Painting all 10,718 Telangana villages per tile was timing out on Earth
+// Engine's side (the initial /api/uhi call succeeded fast, but the actual
+// tile images kept failing) - merging them into one simplified shape first
+// is far cheaper, and pixel-level rasters never showed individual village
+// edges anyway (that detail lives in the separate frontend boundary-lines
+// layer, which already works). Safe/identical behavior for the small
 // Ahmedabad/Mumbai ward collections too.
 function clipToBoundary(image, cityKey, boxGeom) {
   const assetId = MUNI_ASSETS[cityKey];
   if (assetId && assetId.length > 0) {
-    const fc = ee.FeatureCollection(assetId);
-    const boundaryMask = ee.Image().byte().paint(fc, 1);
-    return image.updateMask(boundaryMask).clip(boxGeom);
+    const outline = ee
+      .FeatureCollection(assetId)
+      .geometry()
+      .dissolve(1000)
+      .simplify(1000);
+    return image.clip(outline).clip(boxGeom);
   }
   return image.clip(boxGeom);
 }
