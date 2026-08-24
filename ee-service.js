@@ -200,8 +200,9 @@ const UHI_THRESHOLDS = { ahmedabad: 0.38, telangana: 0.4, mumbai: 0.44 };
 const MUNI_ASSETS = {
   // >>> after uploading ahmedabad_wards.zip to GEE, paste its asset ID here <<<
   ahmedabad: "projects/argon-key-461118-u4/assets/ahmedabad_wards",
-  // >>> after uploading vb_soi_ts (Telangana villages) to GEE, paste its asset ID here <<<
-  telangana: "",
+  // >>> after uploading TS_District_Boundary (official 33 Telangana
+  // districts, from Charvi) to GEE, paste its asset ID here <<<
+  telangana: "projects/argon-key-461118-u4/assets/telangana_districts",
   mumbai: "projects/argon-key-461118-u4/assets/mumbai_wards",
 };
 
@@ -214,24 +215,21 @@ function uhiClipGeom(cityKey, boxGeom) {
   return boxGeom;
 }
 
-// Boundary application via a single dissolved + simplified outline instead
-// of painting/rasterizing every individual polygon on every tile request.
-// Painting all 10,718 Telangana villages per tile was timing out on Earth
-// Engine's side (the initial /api/uhi call succeeded fast, but the actual
-// tile images kept failing) - merging them into one simplified shape first
-// is far cheaper, and pixel-level rasters never showed individual village
-// edges anyway (that detail lives in the separate frontend boundary-lines
-// layer, which already works). Safe/identical behavior for the small
-// Ahmedabad/Mumbai ward collections too.
+// Boundary clip - same simple pattern proven to work for Ahmedabad/Mumbai's
+// small ward collections: clip directly to the asset's geometry.
+// IMPORTANT for Telangana: MUNI_ASSETS.telangana must point to the separate
+// single-polygon STATE OUTLINE asset (telangana_outline), NOT the raw
+// 10,718-village collection - clipping to the raw village FeatureCollection
+// (or dissolving/painting it at runtime) is too heavy and either errors out
+// ("Description length exceeds maximum") or times out per-tile. The outline
+// asset is a single simplified polygon (~424 vertices) computed once
+// locally from the same villages via unary_union, so this stays exactly as
+// lightweight as the city ward clips.
 function clipToBoundary(image, cityKey, boxGeom) {
   const assetId = MUNI_ASSETS[cityKey];
   if (assetId && assetId.length > 0) {
-    const outline = ee
-      .FeatureCollection(assetId)
-      .geometry()
-      .dissolve(1000)
-      .simplify(1000);
-    return image.clip(outline).clip(boxGeom);
+    const outline = ee.FeatureCollection(assetId).geometry();
+    return image.clip(outline);
   }
   return image.clip(boxGeom);
 }
