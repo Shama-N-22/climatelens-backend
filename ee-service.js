@@ -278,6 +278,37 @@ function uhiHotspots(geom, cityKey) {
   const raw = ndvi.addBands(wi).addBands(bi).addBands(lst);
 
   function norm(band, isNeg) {
+    // Telangana: normalize per-district instead of statewide. A single
+    // statewide min/max dilutes Hyderabad's urban heat signal against the
+    // state's much wider range (dense forest to bare farmland), so far
+    // fewer pixels clear the same threshold. Each pixel here instead
+    // normalizes against its OWN district's min/max, computed in one
+    // batched call over all 33 districts (not 33 separate slow calls).
+    // Ahmedabad/Mumbai keep the original whole-region normalization
+    // unchanged - they're small/uniform enough that it already works.
+    if (cityKey === "telangana" && MUNI_ASSETS.telangana) {
+      const zones = ee.FeatureCollection(MUNI_ASSETS.telangana);
+      const zoneStats = raw.select(band).reduceRegions({
+        collection: zones,
+        reducer: ee.Reducer.minMax(),
+        scale: 150,
+        tileScale: 4,
+      });
+      const minImg = zoneStats.reduceToImage({
+        properties: [band + "_min"],
+        reducer: ee.Reducer.first(),
+      });
+      const maxImg = zoneStats.reduceToImage({
+        properties: [band + "_max"],
+        reducer: ee.Reducer.first(),
+      });
+      const n = raw
+        .select(band)
+        .subtract(minImg)
+        .divide(maxImg.subtract(minImg));
+      return (isNeg ? ee.Image(1).subtract(n) : n).rename(band + "_norm");
+    }
+
     const stats = raw.select(band).reduceRegion({
       reducer: ee.Reducer.minMax(),
       geometry: geom,
