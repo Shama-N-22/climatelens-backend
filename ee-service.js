@@ -200,7 +200,7 @@ function imageToUrl(image, vis) {
 // fixed threshold may over/under-flag hotspots given how much more spatial
 // variety a whole state has vs. one city. Kept at 0.40 (the old Hyderabad
 // value) for now; watch the results and re-tune per-district if needed.
-const UHI_THRESHOLDS = { ahmedabad: 0.38, telangana: 0.35, mumbai: 0.44 };
+const UHI_THRESHOLDS = { ahmedabad: 0.38, telangana: 0.4, mumbai: 0.44 };
 
 // >>> PASTE MUNICIPAL BOUNDARY GEE ASSET IDs HERE when available. <<<
 // e.g. ahmedabad: "projects/argon-key-461118-u4/assets/ahmedabad_municipal"
