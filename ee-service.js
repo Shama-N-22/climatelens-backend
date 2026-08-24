@@ -84,8 +84,16 @@ function computeIndices(geom, year, month, cityKey) {
     cloudMax = 25;
   }
 
-  const start = ee.Date.fromYMD(year, month, 1);
-  const end = start.advance(1, "month");
+  const start0 = ee.Date.fromYMD(year, month, 1);
+  const end0 = start0.advance(1, "month");
+  // Telangana spans multiple Landsat path/rows - a single calendar month can
+  // leave some path/rows with zero passes, showing up as blank/transparent
+  // gaps in the composite. Widen the window so every path/row gets at least
+  // one look, while still centering on the selected month. Ahmedabad/Mumbai
+  // are small enough to sit within one or two path/rows, so they don't need
+  // this and keep the original tight month window.
+  const start = cityKey === "telangana" ? start0.advance(-15, "day") : start0;
+  const end = cityKey === "telangana" ? end0.advance(15, "day") : end0;
   const col = ee
     .ImageCollection("LANDSAT/LC08/C02/T1_L2")
     .merge(ee.ImageCollection("LANDSAT/LC09/C02/T1_L2"))
