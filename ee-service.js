@@ -200,7 +200,7 @@ function imageToUrl(image, vis) {
 // fixed threshold may over/under-flag hotspots given how much more spatial
 // variety a whole state has vs. one city. Kept at 0.40 (the old Hyderabad
 // value) for now; watch the results and re-tune per-district if needed.
-const UHI_THRESHOLDS = { ahmedabad: 0.38, telangana: 0.55, mumbai: 0.44 };
+const UHI_THRESHOLDS = { ahmedabad: 0.38, telangana: 0.6, mumbai: 0.44 };
 
 // >>> PASTE MUNICIPAL BOUNDARY GEE ASSET IDs HERE when available. <<<
 // e.g. ahmedabad: "projects/argon-key-461118-u4/assets/ahmedabad_municipal"
@@ -278,37 +278,6 @@ function uhiHotspots(geom, cityKey) {
   const raw = ndvi.addBands(wi).addBands(bi).addBands(lst);
 
   function norm(band, isNeg) {
-    // Telangana: normalize per-district instead of statewide. A single
-    // statewide min/max dilutes Hyderabad's urban heat signal against the
-    // state's much wider range (dense forest to bare farmland), so far
-    // fewer pixels clear the same threshold. Each pixel here instead
-    // normalizes against its OWN district's min/max, computed in one
-    // batched call over all 33 districts (not 33 separate slow calls).
-    // Ahmedabad/Mumbai keep the original whole-region normalization
-    // unchanged - they're small/uniform enough that it already works.
-    if (cityKey === "telangana" && MUNI_ASSETS.telangana) {
-      const zones = ee.FeatureCollection(MUNI_ASSETS.telangana);
-      const zoneStats = raw.select(band).reduceRegions({
-        collection: zones,
-        reducer: ee.Reducer.minMax(),
-        scale: 150,
-        tileScale: 4,
-      });
-      const minImg = zoneStats.reduceToImage({
-        properties: [band + "_min"],
-        reducer: ee.Reducer.first(),
-      });
-      const maxImg = zoneStats.reduceToImage({
-        properties: [band + "_max"],
-        reducer: ee.Reducer.first(),
-      });
-      const n = raw
-        .select(band)
-        .subtract(minImg)
-        .divide(maxImg.subtract(minImg));
-      return (isNeg ? ee.Image(1).subtract(n) : n).rename(band + "_norm");
-    }
-
     const stats = raw.select(band).reduceRegion({
       reducer: ee.Reducer.minMax(),
       geometry: geom,
