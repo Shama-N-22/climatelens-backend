@@ -278,14 +278,12 @@ function uhiHotspots(geom, cityKey) {
   const raw = ndvi.addBands(wi).addBands(bi).addBands(lst);
 
   function norm(band, isNeg) {
-    const stats = raw
-      .select(band)
-      .reduceRegion({
-        reducer: ee.Reducer.minMax(),
-        geometry: geom,
-        scale: 150,
-        maxPixels: 1e9,
-      });
+    const stats = raw.select(band).reduceRegion({
+      reducer: ee.Reducer.minMax(),
+      geometry: geom,
+      scale: 150,
+      maxPixels: 1e9,
+    });
     const mn = ee.Number(stats.get(band + "_min"));
     const mx = ee.Number(stats.get(band + "_max"));
     const n = raw.select(band).subtract(mn).divide(mx.subtract(mn));
@@ -352,9 +350,14 @@ async function indexTileUrl(cityKey, year, month, layer) {
 
 async function buildingsTileUrl(cityKey) {
   const geom = cityGeom(cityKey);
+  // Filter to the real boundary shape (district/ward asset) when available,
+  // not just the rectangular bbox - otherwise buildings from neighbouring
+  // states/areas caught inside the box's buffer zone show up too.
+  const assetId = MUNI_ASSETS[cityKey];
+  const filterGeom = assetId ? ee.FeatureCollection(assetId).geometry() : geom;
   const buildings = ee
     .FeatureCollection("GOOGLE/Research/open-buildings/v3/polygons")
-    .filterBounds(geom)
+    .filterBounds(filterGeom)
     .filter("confidence >= 0.65");
   const styled = buildings.style({
     color: "#b8bcc4",
@@ -382,7 +385,8 @@ async function districtMaxLST(cityKey, year, month) {
       if (err) return reject(err);
       const out = {};
       (result.features || []).forEach((f) => {
-        const rawName = f.properties.District || f.properties.district || f.properties.name;
+        const rawName =
+          f.properties.District || f.properties.district || f.properties.name;
         if (!rawName) return;
         // Title-case to match the frontend geojson's "district" property casing
         const name = String(rawName)
@@ -395,4 +399,11 @@ async function districtMaxLST(cityKey, year, month) {
   });
 }
 
-module.exports = { init, isReady, indexTileUrl, buildingsTileUrl, uhiTileUrl, districtMaxLST };
+module.exports = {
+  init,
+  isReady,
+  indexTileUrl,
+  buildingsTileUrl,
+  uhiTileUrl,
+  districtMaxLST,
+};
