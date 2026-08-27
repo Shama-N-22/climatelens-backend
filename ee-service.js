@@ -350,14 +350,9 @@ async function indexTileUrl(cityKey, year, month, layer) {
 
 async function buildingsTileUrl(cityKey) {
   const geom = cityGeom(cityKey);
-  // Filter to the real boundary shape (district/ward asset) when available,
-  // not just the rectangular bbox - otherwise buildings from neighbouring
-  // states/areas caught inside the box's buffer zone show up too.
-  const assetId = MUNI_ASSETS[cityKey];
-  const filterGeom = assetId ? ee.FeatureCollection(assetId).geometry() : geom;
   const buildings = ee
     .FeatureCollection("GOOGLE/Research/open-buildings/v3/polygons")
-    .filterBounds(filterGeom)
+    .filterBounds(geom)
     .filter("confidence >= 0.65");
   const styled = buildings.style({
     color: "#b8bcc4",
