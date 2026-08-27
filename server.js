@@ -109,6 +109,25 @@ app.get("/api/district-stats", async (req, res) => {
   }
 });
 
+// ---- per-district building counts: /api/district-building-counts?city=telangana ----
+// No year/month needed - building footprints don't change over time.
+app.get("/api/district-building-counts", async (req, res) => {
+  try {
+    const city = String(req.query.city || "").toLowerCase();
+    if (!city) return res.status(400).json({ error: "city is required" });
+
+    const key = `district-buildings:${city}`;
+    const hit = cacheGet(key, BUILDINGS_TTL_MS);
+    if (hit) return res.json({ counts: hit, cached: true });
+
+    const counts = await ee.districtBuildingCounts(city);
+    cacheSet(key, counts);
+    res.json({ counts });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
 // ---- placeholders for datasets Prathyu is preparing ----
 app.get("/api/hospitals", (_req, res) =>
   res.json({ available: false, message: "Hospitals dataset coming soon" }),

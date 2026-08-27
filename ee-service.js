@@ -401,4 +401,34 @@ module.exports = {
   buildingsTileUrl,
   uhiTileUrl,
   districtMaxLST,
+  districtBuildingCounts,
 };
+
+async function districtBuildingCounts(cityKey) {
+  const assetId = MUNI_ASSETS[cityKey];
+  if (!assetId) throw new Error("no district/ward asset set for " + cityKey);
+  const districts = ee.FeatureCollection(assetId);
+  const buildings = ee
+    .FeatureCollection("GOOGLE/Research/open-buildings/v3/polygons")
+    .filter("confidence >= 0.65");
+  const withCounts = districts.map((f) => {
+    const count = buildings.filterBounds(f.geometry()).size();
+    return f.set("building_count", count);
+  });
+  return new Promise((resolve, reject) => {
+    withCounts.getInfo((result, err) => {
+      if (err) return reject(err);
+      const out = {};
+      (result.features || []).forEach((f) => {
+        const rawName =
+          f.properties.District || f.properties.district || f.properties.name;
+        if (!rawName) return;
+        const name = String(rawName)
+          .toLowerCase()
+          .replace(/\b\w/g, (c) => c.toUpperCase());
+        out[name] = f.properties.building_count;
+      });
+      resolve(out);
+    });
+  });
+}
