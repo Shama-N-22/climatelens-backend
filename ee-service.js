@@ -278,12 +278,14 @@ function uhiHotspots(geom, cityKey) {
   const raw = ndvi.addBands(wi).addBands(bi).addBands(lst);
 
   function norm(band, isNeg) {
-    const stats = raw.select(band).reduceRegion({
-      reducer: ee.Reducer.minMax(),
-      geometry: geom,
-      scale: 150,
-      maxPixels: 1e9,
-    });
+    const stats = raw
+      .select(band)
+      .reduceRegion({
+        reducer: ee.Reducer.minMax(),
+        geometry: geom,
+        scale: 150,
+        maxPixels: 1e9,
+      });
     const mn = ee.Number(stats.get(band + "_min"));
     const mx = ee.Number(stats.get(band + "_max"));
     const n = raw.select(band).subtract(mn).divide(mx.subtract(mn));
@@ -362,4 +364,35 @@ async function buildingsTileUrl(cityKey) {
   return imageToUrl(styled, {});
 }
 
-module.exports = { init, isReady, indexTileUrl, buildingsTileUrl, uhiTileUrl };
+// ---- per-district max LST (for the district popup's "Max temperature" stat) ----
+async function districtMaxLST(cityKey, year, month) {
+  const assetId = MUNI_ASSETS[cityKey];
+  if (!assetId) throw new Error("no district/ward asset set for " + cityKey);
+  const geom = cityGeom(cityKey);
+  const idx = computeIndices(geom, year, month, cityKey);
+  const districts = ee.FeatureCollection(assetId);
+  const stats = idx.lst.reduceRegions({
+    collection: districts,
+    reducer: ee.Reducer.max(),
+    scale: 150,
+    tileScale: 4,
+  });
+  return new Promise((resolve, reject) => {
+    stats.getInfo((result, err) => {
+      if (err) return reject(err);
+      const out = {};
+      (result.features || []).forEach((f) => {
+        const rawName = f.properties.District || f.properties.district || f.properties.name;
+        if (!rawName) return;
+        // Title-case to match the frontend geojson's "district" property casing
+        const name = String(rawName)
+          .toLowerCase()
+          .replace(/\b\w/g, (c) => c.toUpperCase());
+        out[name] = f.properties.max;
+      });
+      resolve(out);
+    });
+  });
+}
+
+module.exports = { init, isReady, indexTileUrl, buildingsTileUrl, uhiTileUrl, districtMaxLST };

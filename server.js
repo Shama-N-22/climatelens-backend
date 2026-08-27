@@ -86,6 +86,29 @@ app.get("/api/uhi", async (req, res) => {
   }
 });
 
+// ---- per-district stats (currently: max LST): /api/district-stats?city=telangana&year=2025&month=5 ----
+app.get("/api/district-stats", async (req, res) => {
+  try {
+    const city = String(req.query.city || "").toLowerCase();
+    const year = Number(req.query.year);
+    const month = Number(req.query.month);
+    if (!city || !year || !month)
+      return res
+        .status(400)
+        .json({ error: "city, year and month are required" });
+
+    const key = `district-stats:${city}:${year}:${month}`;
+    const hit = cacheGet(key);
+    if (hit) return res.json({ stats: hit, cached: true });
+
+    const stats = await ee.districtMaxLST(city, year, month);
+    cacheSet(key, stats);
+    res.json({ stats });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
 // ---- placeholders for datasets Prathyu is preparing ----
 app.get("/api/hospitals", (_req, res) =>
   res.json({ available: false, message: "Hospitals dataset coming soon" }),
