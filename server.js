@@ -128,6 +128,74 @@ app.get("/api/district-building-counts", async (req, res) => {
   }
 });
 
+// ============================================================================
+// ====  ADDED November 2026 - ALL-INDIA EXTRA LAYERS  ========================
+// ============================================================================
+// One route serves all six of the new layers Charvi listed (rivers, rainfall,
+// LULC, DEM, slope) plus JRC surface water. They are shared by the Heat,
+// Flood and Landslide tabs - the tab only decides which ones it switches on.
+//
+//   /api/layer/rivers?state=karnataka
+//   /api/layer/rainfall?state=karnataka&year=2020
+//   /api/layer/lulc?state=karnataka
+//   /api/layer/dem?state=karnataka
+//   /api/layer/slope?state=karnataka
+//   /api/layer/water?state=karnataka
+//
+// "state" is the slug used by the frontend (lowercase, dashes), e.g.
+// "tamil-nadu", "uttar-pradesh", "telangana".
+//
+// These datasets are static, so they are cached for 24 hours like buildings.
+const EXTRA_LAYERS = {
+  rivers: (state) => ee.riversTileUrl(state),
+  rainfall: (state, year) => ee.rainfallTileUrl(state, year),
+  lulc: (state) => ee.lulcTileUrl(state),
+  dem: (state) => ee.demTileUrl(state),
+  slope: (state) => ee.slopeTileUrl(state),
+  water: (state) => ee.waterOccurrenceTileUrl(state),
+};
+
+app.get("/api/layer/:name", async (req, res) => {
+  try {
+    const name = String(req.params.name || "").toLowerCase();
+    // accept ?state= or ?city= so it works from either page
+    const state = String(
+      req.query.state || req.query.city || "",
+    ).toLowerCase();
+    const year = Number(req.query.year) || 2020;
+
+    const fn = EXTRA_LAYERS[name];
+    if (!fn)
+      return res.status(400).json({
+        error: "unknown layer: " + name,
+        available: Object.keys(EXTRA_LAYERS),
+      });
+    if (!state) return res.status(400).json({ error: "state is required" });
+
+    const key =
+      name === "rainfall"
+        ? `layer:${name}:${state}:${year}`
+        : `layer:${name}:${state}`;
+    const hit = cacheGet(key, BUILDINGS_TTL_MS);
+    if (hit) return res.json({ url: hit, cached: true });
+
+    const url = await fn(state, year);
+    cacheSet(key, url);
+    res.json({ url });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+// ---- which states the backend knows about: /api/states ----
+app.get("/api/states", (_req, res) => {
+  try {
+    res.json({ states: ee.knownStates() });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
 // ---- placeholders for datasets Prathyu is preparing ----
 app.get("/api/hospitals", (_req, res) =>
   res.json({ available: false, message: "Hospitals dataset coming soon" }),
