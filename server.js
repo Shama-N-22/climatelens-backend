@@ -141,6 +141,7 @@ app.get("/api/district-building-counts", async (req, res) => {
 //   /api/layer/dem?state=karnataka
 //   /api/layer/slope?state=karnataka
 //   /api/layer/water?state=karnataka
+//   /api/layer/soil?state=karnataka
 //
 // "state" is the slug used by the frontend (lowercase, dashes), e.g.
 // "tamil-nadu", "uttar-pradesh", "telangana".
@@ -153,6 +154,7 @@ const EXTRA_LAYERS = {
   dem: (state) => ee.demTileUrl(state),
   slope: (state) => ee.slopeTileUrl(state),
   water: (state) => ee.waterOccurrenceTileUrl(state),
+  soil: (state) => ee.soilTileUrl(state),
 };
 
 app.get("/api/layer/:name", async (req, res) => {

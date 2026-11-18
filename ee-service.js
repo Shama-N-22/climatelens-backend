@@ -424,6 +424,7 @@ module.exports = {
   demTileUrl,
   slopeTileUrl,
   waterOccurrenceTileUrl,
+  soilTileUrl,
   knownStates,
 };
 
@@ -657,6 +658,25 @@ const VIS_EXTRA = {
     max: 100,
     palette: ["#ffffff", "#ffbbbb", "#0000ff"],
   },
+  // OpenLandMap USDA soil texture classes 1..12
+  soil: {
+    min: 1,
+    max: 12,
+    palette: [
+      "#d5c36b", // 1  clay
+      "#b96947", // 2  silty clay
+      "#9d3706", // 3  sandy clay
+      "#ae868f", // 4  clay loam
+      "#f86714", // 5  silty clay loam
+      "#46d143", // 6  sandy clay loam
+      "#368f20", // 7  loam
+      "#3e5a14", // 8  silt loam
+      "#ffd557", // 9  sandy loam
+      "#fff72e", // 10 silt
+      "#ff5a9d", // 11 loamy sand
+      "#ff005b", // 12 sand
+    ],
+  },
   // ESA WorldCover v200 official class colours, in remapped order 0..10
   lulc: {
     min: 0,
@@ -733,6 +753,18 @@ async function slopeTileUrl(stateKey) {
   const dem = ee.Image("USGS/SRTMGL1_003");
   const slope = ee.Terrain.slope(dem).clip(geom);
   return imageToUrl(slope, VIS_EXTRA.slope);
+}
+
+// ---- F2. Soil texture class (OpenLandMap, USDA system) ---------------------
+// 12 USDA texture classes at 250 m. Used by the Landslide tab: texture is one
+// of the standard inputs to landslide susceptibility alongside slope and DEM.
+async function soilTileUrl(stateKey) {
+  const geom = layerGeom(stateKey);
+  const img = ee
+    .Image("OpenLandMap/SOL/SOL_TEXTURE-CLASS_USDA-TT_M/v02")
+    .select("b0")
+    .clip(geom);
+  return imageToUrl(img, VIS_EXTRA.soil);
 }
 
 // ---- F. Surface water occurrence (JRC Global Surface Water) ----------------
